@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "reader": {
+      "type": "stdio",
+      "command": "/Users/kairos/Projects/reader/.venv/bin/python",
+      "args": ["-m", "server"],
+      "cwd": "/Users/kairos/Projects/reader",
+      "env": {
+        "READER_HOME": "/Users/kairos/Projects/reader"
+      }
+    }
+  }
+}

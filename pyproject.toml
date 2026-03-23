@@ -1,0 +1,15 @@
+[project]
+name = "reader"
+version = "0.1.0"
+description = "Epub reader for shared reading sessions with engram memory"
+requires-python = ">=3.11"
+dependencies = [
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+    "fastembed>=0.6",
+    "numpy>=1.26",
+    "mcp>=1.0",
+]
+
+[project.scripts]
+reader = "server:main"
