@@ -57,6 +57,36 @@ class ReadingStore:
                 reaction TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS companion_reactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                book_id INTEGER NOT NULL REFERENCES books(id),
+                chunk_position INTEGER NOT NULL,
+                model TEXT NOT NULL,
+                reaction TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS instinct_notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                book_id INTEGER NOT NULL REFERENCES books(id),
+                chunk_position INTEGER NOT NULL,
+                reaction_id INTEGER NOT NULL REFERENCES reactions(id),
+                instinct_ids TEXT NOT NULL,
+                notes TEXT NOT NULL,
+                reviewed INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS instinct_reviews (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                book_id INTEGER NOT NULL REFERENCES books(id),
+                note_ids TEXT NOT NULL,
+                verdicts TEXT NOT NULL,
+                patterns TEXT,
+                model TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
         """)
         self.conn.commit()
 
@@ -159,6 +189,82 @@ class ReadingStore:
             "VALUES (?, ?, ?, ?)",
             (book_id, chunk_position, reaction, _now()),
         )
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def store_companion_reaction(
+        self, book_id: int, chunk_position: int, model: str, reaction: str
+    ) -> int:
+        """Store a companion's reaction to a passage."""
+        cursor = self.conn.execute(
+            "INSERT INTO companion_reactions (book_id, chunk_position, model, reaction, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (book_id, chunk_position, model, reaction, _now()),
+        )
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def store_instinct_note(
+        self, book_id: int, chunk_position: int, reaction_id: int,
+        instinct_ids: list[str], notes: str,
+    ) -> int:
+        """Store an instinct note linked to a reaction."""
+        import json
+        cursor = self.conn.execute(
+            "INSERT INTO instinct_notes "
+            "(book_id, chunk_position, reaction_id, instinct_ids, notes, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (book_id, chunk_position, reaction_id, json.dumps(instinct_ids), notes, _now()),
+        )
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def count_unreviewed_notes(self, book_id: int) -> int:
+        """Count instinct notes not yet covered by a deep review."""
+        row = self.conn.execute(
+            "SELECT COUNT(*) as n FROM instinct_notes WHERE book_id = ? AND reviewed = 0",
+            (book_id,),
+        ).fetchone()
+        return row["n"]
+
+    def get_unreviewed_notes(self, book_id: int, limit: int = 10) -> list[dict]:
+        """Get unreviewed instinct notes with their passage text and reaction."""
+        rows = self.conn.execute(
+            "SELECT n.id, n.chunk_position, n.instinct_ids, n.notes, "
+            "  c.text AS passage_text, c.chapter_title, r.reaction "
+            "FROM instinct_notes n "
+            "JOIN chunks c ON c.book_id = n.book_id AND c.position = n.chunk_position "
+            "JOIN reactions r ON r.id = n.reaction_id "
+            "WHERE n.book_id = ? AND n.reviewed = 0 "
+            "ORDER BY n.created_at DESC LIMIT ?",
+            (book_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_notes_reviewed(self, note_ids: list[int]) -> None:
+        """Mark instinct notes as reviewed."""
+        if not note_ids:
+            return
+        placeholders = ",".join("?" for _ in note_ids)
+        self.conn.execute(
+            f"UPDATE instinct_notes SET reviewed = 1 WHERE id IN ({placeholders})",
+            note_ids,
+        )
+        self.conn.commit()
+
+    def store_review(
+        self, book_id: int, note_ids: list[int], verdicts: list[dict],
+        patterns: str | None, model: str,
+    ) -> int:
+        """Store a deep review result."""
+        import json
+        cursor = self.conn.execute(
+            "INSERT INTO instinct_reviews "
+            "(book_id, note_ids, verdicts, patterns, model, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (book_id, json.dumps(note_ids), json.dumps(verdicts), patterns, model, _now()),
+        )
+        self.mark_notes_reviewed(note_ids)
         self.conn.commit()
         return cursor.lastrowid
 
