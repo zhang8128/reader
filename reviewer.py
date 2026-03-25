@@ -74,6 +74,7 @@ def review_note(
                 {"role": "user", "content": user_msg},
             ],
             "stream": False,
+            "think": False,
             "options": {
                 "temperature": 0.3,
                 "num_predict": 512,
