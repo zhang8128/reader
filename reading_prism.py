@@ -51,7 +51,7 @@ def _load_reading_lenses():
         all_lenses = load_lenses()
         reading_domains = {
             "early-childhood-development", "literary-theory",
-            "philosophy", "social-sciences", "sciences",
+            "philosophy", "social-sciences", "sciences", "craft",
         }
         return {
             name: lens for name, lens in all_lenses.items()
@@ -128,7 +128,28 @@ def run_reading_prism(
             "lens": name,
             "question": question,
             "selection_type": selection_type,
+            "recall_query": question,
         })
+
+    # Mandatory authorial lens — always fires, not classifier-routed
+    authorial = lenses.get("authorial")
+    if authorial:
+        question = _ask_lens(authorial, context)
+        if question:
+            qid = store.store_prism_question(
+                book_id=book_id,
+                chunk_position=chunk_position,
+                lens="authorial",
+                question=question,
+                selection_type="mandatory",
+            )
+            results.append({
+                "id": qid,
+                "lens": "authorial",
+                "question": question,
+                "selection_type": "mandatory",
+                "recall_query": question,
+            })
 
     return results
 

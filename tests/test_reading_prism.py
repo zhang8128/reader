@@ -85,3 +85,32 @@ def test_handle_prism_response_no_match(tmp_path):
     store = ReadingStore(tmp_path / "test.db")
     result = handle_prism_response(store, "power", "test", 1, 42)
     assert result is None
+
+
+def test_recall_query_is_raw_question(tmp_path):
+    from reading_prism import run_reading_prism
+
+    store = ReadingStore(tmp_path / "test.db")
+
+    with patch("reading_prism._classify") as mock_classify, \
+         patch("reading_prism._ask_lens") as mock_ask:
+        mock_classify.return_value = (["attachment"], "power", "formalist")
+        mock_ask.side_effect = lambda lens, ctx: f"Question from {lens['name']}"
+
+        lenses = {
+            "attachment": {"name": "attachment", "prompt": "test", "domain": "early-childhood-development", "temperature": 0.8},
+            "power": {"name": "power", "prompt": "test", "domain": "literary-theory", "temperature": 0.8},
+            "formalist": {"name": "formalist", "prompt": "test", "domain": "literary-theory", "temperature": 0.8},
+            "authorial": {"name": "authorial", "prompt": "test", "domain": "craft", "temperature": 0.8},
+        }
+
+        questions = run_reading_prism(
+            store=store, book_id=1, chunk_position=42,
+            passage="test", reaction="test", lenses=lenses,
+        )
+
+        # Should have classified lenses + authorial
+        assert any(q["lens"] == "authorial" for q in questions)
+        # Every question should have recall_query = raw question
+        for q in questions:
+            assert q["recall_query"] == q["question"]
