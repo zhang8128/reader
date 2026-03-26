@@ -21,6 +21,12 @@ from companion import get_reaction as companion_react
 from reviewer import review_note
 from store import ReadingStore
 
+try:
+    from reading_prism import run_reading_prism, handle_prism_response
+    _PRISM_AVAILABLE = True
+except ImportError:
+    _PRISM_AVAILABLE = False
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("reader")
 
@@ -107,7 +113,7 @@ def read() -> dict:
 
     progress = store.get_progress(book["id"])
 
-    return {
+    response = {
         "book": book["title"],
         "chapter": passage["chapter_title"],
         "position": passage["position"] + 1,
@@ -116,12 +122,26 @@ def read() -> dict:
         "text": passage["text"],
     }
 
+    # Attach prism questions from previous passage
+    if _PRISM_AVAILABLE:
+        prev_position = passage["position"] - 1
+        if prev_position >= 0:
+            prism_qs = store.get_prism_questions(book["id"], prev_position)
+            if prism_qs:
+                response["prism"] = [
+                    {"lens": q["lens"], "question": q["question"]}
+                    for q in prism_qs
+                ]
+
+    return response
+
 
 @mcp.tool()
 def react(
     reaction: str,
     instinct_notes: str | None = None,
     instinct_ids: list[str] | None = None,
+    prism_response: dict | None = None,
 ) -> dict:
     """Record your reaction to the current passage and advance.
 
@@ -140,6 +160,8 @@ def react(
             proximity to future safety, not hoarding."
         instinct_ids: Optional. Engram instinct UUIDs that felt active.
             Pair with instinct_notes for structured tracking.
+        prism_response: Optional. Respond to a prism question from the previous
+            passage. Format: {"lens": "attachment", "response": "your response"}
     """
     store = _get_store()
     book = store.get_active_book()
@@ -172,6 +194,21 @@ def react(
     # Forward to engram via MCP client
     engram_results = _forward_to_engram(memory_content, reaction)
 
+    # Handle prism response from previous passage
+    if _PRISM_AVAILABLE and prism_response and isinstance(prism_response, dict):
+        lens = prism_response.get("lens", "")
+        resp = prism_response.get("response", "")
+        if lens and resp:
+            prev_pos = passage["position"] - 1
+            if prev_pos >= 0:
+                prism_engram = handle_prism_response(
+                    store, lens, resp,
+                    book_id=book["id"],
+                    chunk_position=prev_pos,
+                )
+                if prism_engram:
+                    engram_results["prism"] = prism_engram
+
     # Auto-save sampling: random ~20% + eureka detection
     auto_save = _should_auto_save(reaction, store, book["id"])
     if auto_save:
@@ -181,6 +218,23 @@ def react(
             f"Reason: {auto_save}. Please call engram remember() with "
             "core=True if eureka, core=False if random."
         )
+
+    # Run reading prism (questions attach to next read())
+    if _PRISM_AVAILABLE:
+        try:
+            prism_questions = run_reading_prism(
+                store=store,
+                book_id=book["id"],
+                chunk_position=passage["position"],
+                passage=passage["text"],
+                reaction=reaction,
+                book=book["title"],
+                chapter=passage["chapter_title"],
+            )
+            if prism_questions:
+                logger.info("Prism: %d questions for passage %d", len(prism_questions), passage["position"])
+        except Exception:
+            logger.warning("Reading prism failed", exc_info=True)
 
     # Advance to next passage
     has_more = store.advance(book["id"])
