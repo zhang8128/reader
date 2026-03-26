@@ -87,6 +87,19 @@ class ReadingStore:
                 model TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS prism_questions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                book_id INTEGER NOT NULL REFERENCES books(id),
+                chunk_position INTEGER NOT NULL,
+                lens TEXT NOT NULL,
+                question TEXT NOT NULL,
+                selection_type TEXT NOT NULL,
+                engaged BOOLEAN DEFAULT 0,
+                response TEXT,
+                forwarded_to_engram BOOLEAN DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
         """)
         self.conn.commit()
 
@@ -267,6 +280,50 @@ class ReadingStore:
         self.mark_notes_reviewed(note_ids)
         self.conn.commit()
         return cursor.lastrowid
+
+    def store_prism_question(
+        self,
+        book_id: int,
+        chunk_position: int,
+        lens: str,
+        question: str,
+        selection_type: str,
+    ) -> int:
+        """Store a prism question for a passage."""
+        cur = self.conn.execute(
+            "INSERT INTO prism_questions "
+            "(book_id, chunk_position, lens, question, selection_type, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (book_id, chunk_position, lens, question, selection_type, _now()),
+        )
+        self.conn.commit()
+        return cur.lastrowid
+
+    def get_prism_questions(self, book_id: int, chunk_position: int) -> list[dict]:
+        """Get prism questions for a specific passage."""
+        rows = self.conn.execute(
+            "SELECT * FROM prism_questions "
+            "WHERE book_id = ? AND chunk_position = ? ORDER BY id",
+            (book_id, chunk_position),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_prism_engaged(self, question_id: int, response: str = "") -> None:
+        """Mark a prism question as engaged with optional response."""
+        self.conn.execute(
+            "UPDATE prism_questions SET engaged = 1, response = ? WHERE id = ?",
+            (response, question_id),
+        )
+        self.conn.commit()
+
+    def prism_fired_history(self, book_id: int, limit: int = 50) -> list[str]:
+        """Get recent fired lens names in order for rotating selection."""
+        rows = self.conn.execute(
+            "SELECT lens FROM prism_questions WHERE book_id = ? "
+            "ORDER BY id DESC LIMIT ?",
+            (book_id, limit),
+        ).fetchall()
+        return [r["lens"] for r in reversed(rows)]
 
     def close(self):
         self.conn.close()
