@@ -11,6 +11,8 @@ dependencies = [
     "mcp>=1.0",
     "sounddevice>=0.5.5",
     "faster-whisper>=1.2.1",
+    "mediapipe>=0.10.33",
+    "opencv-python>=4.13.0.92",
 ]
 
 [project.scripts]
