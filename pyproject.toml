@@ -9,7 +9,17 @@ dependencies = [
     "fastembed>=0.6",
     "numpy>=1.26",
     "mcp>=1.0",
+    "sounddevice>=0.5.5",
+    "faster-whisper>=1.2.1",
 ]
 
 [project.scripts]
 reader = "server:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
